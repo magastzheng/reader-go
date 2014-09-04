@@ -1,0 +1,8 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<test attr="test/test">
+  <test1 id="only me" name="test">This is a test!</test1>
+  <test2 id="test2" class="test test"/>
+  <!--ddddddddd-->
+  <![CDATA[teststeste]]>
+  This is a test
+</test>
