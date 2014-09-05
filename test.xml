@@ -2,7 +2,7 @@
 <test attr="test/test">
   <test1 id="only me" name="test">This is a test!</test1>
   <test2 id="test2" class="test test"/>
-  <!--ddddddddd-->
+  <!--do it by yourself-->
   <![CDATA[teststeste]]>
   This is a test
 </test>
