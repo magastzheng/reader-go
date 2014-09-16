@@ -17,6 +17,18 @@ const (
 )
 
 const (
+    STAT_NONE = iota
+    STAT_AFTER_LT
+    STAT_START_TAG
+    STAT_END_TAG
+    STAT_TEXT
+    STAT_PRE_COMMENT1
+    STAT_PRE_COMMENT2
+    STAT_COMMENT
+    STAT_PROCESS_INSTRUCTION
+)
+
+const (
     Lt rune = '<'
     Gt rune = '>'
     Slash rune = '/'
@@ -29,6 +41,9 @@ const (
     CR = '\n'
     RE = '\r'
     Tab = '\t'
+    Question = '?'
+    Underscore = '_'
+    Eq = '='
     //LeftBracket = '['
     //RightBracket = ']'
 )
@@ -41,6 +56,10 @@ const (
     CDataStr = "CDATA"
 )
 
+type Parser interface {
+    Parse() void
+}
+
 type TextReader interface {
     Read() rune 
     //ReadCharacter() rune
@@ -49,6 +68,186 @@ type TextReader interface {
     IsSpecialCh(r rune) bool
     ClearStatus()
 }
+
+type TextParser struct {
+    Data string
+    buffer []rune
+    status int
+    length int
+    current int
+}
+
+func (p *TextParser) IsSpace(ch rune) bool {
+    return ch == Blank || ch == Tab
+}
+
+func (p *TextParser) IsAlpha(ch rune) bool {
+    return ('a' < ch && ch < 'z') || ( 'A' < ch && ch < 'Z')
+}
+
+func (p *TextParser) Parse(){
+    
+    p.status = STAT_NONE
+    for p.current = 0; p.current < p.length; p.current++ {
+        ch := p.buffer[p.current]
+        switch p.status {
+            case STAT_NONE:
+                if ch == Lt {
+                    //reset_buffer
+                    p.status = STAT_AFTER_LT
+                } else if !p.IsSpace(ch) {
+                    p.status = STAT_TEXT
+                }
+            case STAT_AFTER_LE:
+                if ch == Question {
+                    p.status = STAT_PROCESS_INSTRUCTION
+                } else if ch == Slash {
+                    p.status = STAT_END_TAG
+                } else if ch == Exclam {
+                    p.status = STAT_PRE_COMMENT1
+                } else if p.IsAlpha(ch) || ch == Underscore {
+                    p.status = STAT_STAT_TAG
+                } else {
+                    //do nothing
+                }
+            case STAT_START_TAG:
+                //parse start tag
+                p.status = STAT_NONE
+            case STAT_END_TAG:
+                //parse end tag
+                p.status = STAT_NONE
+            case STAT_PROCESS_INSTRUCTION:
+                //parse process instruction
+                p.status = STAT_NONE
+            case STAT_TEXT:
+                //parse text
+                p.status = STAT_NONE
+            case STAT_PRE_COMMENT1:
+                if ch == Dash {
+                    p.status = STAT_PRE_COMMENT2
+                } else {
+                    //do nothing
+                }
+            case STAT_PRE_COMMENT2:
+                if ch == Dash {
+                    p.status = STAT_COMMEN
+                } else {
+                    //do nothing
+                }
+            case STAT_COMMENT:
+                //parse comment
+                p.status = STAT_NONE
+        }
+    }
+}
+
+const (
+    STAT_PRE_KEY = iota
+    STAT_KEY
+    STAT_PRE_VALUE
+    STAT_VALUE
+    STAT_NAME
+    STAT_ATTR
+    STAT_END
+)
+
+const MAX_ATTR_NR = 1024
+
+func (p *TextParser) ParseAttributes(endch rune) {
+    status := STAT_PRE_KEY
+    valueEnd := Quote
+    start := 0
+    attrNR := 0
+    for ; p.current < p.length && attrNR < MAX_ATTR_NR; p.current++ {
+        ch := p.buffer[p.current]
+        switch status {
+            case STAT_PRE_KEY:
+                if ch == endch || ch == Gt {
+                    //read '/' or '>' then go to end status
+                    status = STAT_END
+                } else if !p.IsSpace(ch) {
+                    status = STAT_KEY
+                    start = p.current
+                }
+            case STAT_KEY:
+                if ch == Eq {
+                    //read the name (p.current - start)
+                    names = p.buffer[start: p.current - 1]
+                    fmt.Println("attr name ", string(names))
+                    status = STAT_PRE_VALUE
+                }
+            case STAT_PRE_VALUE:
+                if ch == Quote || ch == Apos {
+                    //read " or '
+                    status = STAT_VALUE
+                    valueEnd = ch
+                    start = p.current + 1
+                }
+            case STAT_VALUE:
+                if ch == valueEnd {
+                    values = p.buffer[p.current - start]
+                    fmt.Println("attr value", string(values))
+                    status = STAT_PRE_KEY
+                }
+        }
+
+        if status == STAT_END {
+            break
+        }
+    }
+}
+
+func (p *TextParser) ParseStartTag() {
+    status := STAT_NAME
+    start := p.current - 1
+    for ; p.current < p.length; p.current++ {
+        ch := p.buffer[p.current]
+
+        switch status {
+            case STAT_NAME:
+                if p.IsSpace(ch) || ch == Gt || ch == Slash {
+                    status = ( ch != Gt && ch != Slash ) ? STAT_ATTR : STAT_END
+                }
+            case STAT_ATTR:
+                p.ParseAttributes('/')
+                status = STAT_END
+        }
+
+        if status == STAT_END {
+            break
+        }
+    }
+
+    //continue to read
+}
+
+func (p *TextParser) ParsePI() {
+    status := STAT_NAME
+    start := p.current
+
+    for ; p.current < p.length; p.current++ {
+        ch := p.buffer[p.current]
+        switch status {
+            case STAT_NAME:
+                if p.IsSpace(ch) || ch == Gt {
+                    status = ch != Gt ? STAT_ATTR : STAT_END
+                }
+            case STAT_ATTR:
+                p.ParseAttributes('?')
+                status = STAT_END
+        }
+
+        if status == STAT_END {
+            break
+        }
+    }
+
+    tagName = string(p.buffer[p.current - start])
+    fmt.Println(tagName)
+}
+
+
+
 
 type HtmlReader struct {
     htmlData string
@@ -217,12 +416,14 @@ func (p* HtmlReader) Read () rune {
 
 func (p *HtmlReader) Parse(htmlData string) bool {
     p.SetData(htmlData)
-    
+   
+    var str = ""
     for ; p.current < p.length; {  
         r := p.Read()
+        str += string(r)
     }
    
-
+    fmt.Println(str)
     //r := buffer[i]
     //r, n := utf8.DecodeRune(buffer)
     //fmt.Printf("%c", r)
