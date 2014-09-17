@@ -161,7 +161,7 @@ func (p *TextParser) Parse(){
                 p.ParsePI()
                 p.status = STAT_NONE
             case STAT_TEXT:
-                fmt.Println("*******Text*******")
+                fmt.Println("*******Text******", "start", string(ch))
                 //parse text
                 p.ParseText()
                 p.status = STAT_NONE
