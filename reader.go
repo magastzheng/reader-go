@@ -26,6 +26,16 @@ const (
     STAT_PRE_COMMENT2
     STAT_COMMENT
     STAT_PROCESS_INSTRUCTION
+    STAT_CDATA
+    STAT_PRE_KEY
+    STAT_KEY
+    STAT_PRE_VALUE
+    STAT_VALUE
+    STAT_NAME
+    STAT_ATTR
+    STAT_END
+    STAT_MINUS1
+    STAT_MINUS2
 )
 
 const (
@@ -44,9 +54,11 @@ const (
     Question = '?'
     Underscore = '_'
     Eq = '='
-    //LeftBracket = '['
-    //RightBracket = ']'
+    LeftBracket = '['
+    RightBracket = ']'
 )
+
+const MAX_ATTR_NR = 1024
 
 const(
     End rune = rune(-1)
@@ -57,7 +69,7 @@ const (
 )
 
 type Parser interface {
-    Parse() void
+    Parse()
 }
 
 type TextReader interface {
@@ -85,8 +97,19 @@ func (p *TextParser) IsAlpha(ch rune) bool {
     return ('a' < ch && ch < 'z') || ( 'A' < ch && ch < 'Z')
 }
 
-func (p *TextParser) Parse(){
-    
+func (p *TextParser) SetData(data string){
+    p.Data = data
+    p.buffer = []rune(p.Data)
+    p.length = len(p.buffer)
+    p.current = 0
+} 
+
+func (p *TextParser) ParseStr(data string) {
+    p.SetData(data)
+    p.Parse()
+}
+
+func (p *TextParser) Parse(){ 
     p.status = STAT_NONE
     for p.current = 0; p.current < p.length; p.current++ {
         ch := p.buffer[p.current]
@@ -98,7 +121,7 @@ func (p *TextParser) Parse(){
                 } else if !p.IsSpace(ch) {
                     p.status = STAT_TEXT
                 }
-            case STAT_AFTER_LE:
+            case STAT_AFTER_LT:
                 if ch == Question {
                     p.status = STAT_PROCESS_INSTRUCTION
                 } else if ch == Slash {
@@ -106,58 +129,61 @@ func (p *TextParser) Parse(){
                 } else if ch == Exclam {
                     p.status = STAT_PRE_COMMENT1
                 } else if p.IsAlpha(ch) || ch == Underscore {
-                    p.status = STAT_STAT_TAG
+                    p.status = STAT_START_TAG
                 } else {
                     //do nothing
                 }
             case STAT_START_TAG:
                 //parse start tag
+                p.ParseStartTag()
                 p.status = STAT_NONE
             case STAT_END_TAG:
                 //parse end tag
+                p.ParseEndTag()
                 p.status = STAT_NONE
             case STAT_PROCESS_INSTRUCTION:
                 //parse process instruction
+                p.ParsePI()
                 p.status = STAT_NONE
             case STAT_TEXT:
+                fmt.Println("*******Text*******")
                 //parse text
+                p.ParseText()
                 p.status = STAT_NONE
+                fmt.Println("*******End Text*******")
             case STAT_PRE_COMMENT1:
                 if ch == Dash {
                     p.status = STAT_PRE_COMMENT2
+                } else if ch == LeftBracket {
+                    p.status = STAT_CDATA
                 } else {
                     //do nothing
                 }
             case STAT_PRE_COMMENT2:
                 if ch == Dash {
-                    p.status = STAT_COMMEN
+                    p.status = STAT_COMMENT
                 } else {
                     //do nothing
                 }
             case STAT_COMMENT:
                 //parse comment
+                fmt.Println("======Comment======")
+                p.ParseComment()
+                p.status = STAT_NONE
+                fmt.Println("======End Comment======")
+            case STAT_CDATA:
+                p.ParseCData()
                 p.status = STAT_NONE
         }
     }
 }
 
-const (
-    STAT_PRE_KEY = iota
-    STAT_KEY
-    STAT_PRE_VALUE
-    STAT_VALUE
-    STAT_NAME
-    STAT_ATTR
-    STAT_END
-)
-
-const MAX_ATTR_NR = 1024
-
 func (p *TextParser) ParseAttributes(endch rune) {
     status := STAT_PRE_KEY
-    valueEnd := Quote
+    valueEnd := Quot
     start := 0
     attrNR := 0
+    //names := 
     for ; p.current < p.length && attrNR < MAX_ATTR_NR; p.current++ {
         ch := p.buffer[p.current]
         switch status {
@@ -172,12 +198,12 @@ func (p *TextParser) ParseAttributes(endch rune) {
             case STAT_KEY:
                 if ch == Eq {
                     //read the name (p.current - start)
-                    names = p.buffer[start: p.current - 1]
+                    names := p.buffer[start: p.current]
                     fmt.Println("attr name ", string(names))
                     status = STAT_PRE_VALUE
                 }
             case STAT_PRE_VALUE:
-                if ch == Quote || ch == Apos {
+                if ch == Quot || ch == Apos {
                     //read " or '
                     status = STAT_VALUE
                     valueEnd = ch
@@ -185,9 +211,11 @@ func (p *TextParser) ParseAttributes(endch rune) {
                 }
             case STAT_VALUE:
                 if ch == valueEnd {
-                    values = p.buffer[p.current - start]
-                    fmt.Println("attr value", string(values))
+                    values := p.buffer[start:p.current]
+                    fmt.Println("attr value: ", string(values))
                     status = STAT_PRE_KEY
+                } else {
+                    //do nothing
                 }
         }
 
@@ -200,13 +228,23 @@ func (p *TextParser) ParseAttributes(endch rune) {
 func (p *TextParser) ParseStartTag() {
     status := STAT_NAME
     start := p.current - 1
+    end := p.current
+    firstSpace := true
     for ; p.current < p.length; p.current++ {
         ch := p.buffer[p.current]
 
         switch status {
             case STAT_NAME:
                 if p.IsSpace(ch) || ch == Gt || ch == Slash {
-                    status = ( ch != Gt && ch != Slash ) ? STAT_ATTR : STAT_END
+                    if ch != Gt && ch != Slash { 
+                        if firstSpace && p.IsSpace(ch) {
+                            end = p.current
+                            firstSpace = false
+                        }
+                        status = STAT_ATTR 
+                    } else {
+                        status = STAT_END
+                    }
                 }
             case STAT_ATTR:
                 p.ParseAttributes('/')
@@ -217,6 +255,9 @@ func (p *TextParser) ParseStartTag() {
             break
         }
     }
+
+    names := p.buffer[start: end]
+    fmt.Println("Start tag name:", string(names))
 
     //continue to read
 }
@@ -230,7 +271,11 @@ func (p *TextParser) ParsePI() {
         switch status {
             case STAT_NAME:
                 if p.IsSpace(ch) || ch == Gt {
-                    status = ch != Gt ? STAT_ATTR : STAT_END
+                    if ch != Gt {
+                        status = STAT_ATTR
+                    } else {
+                        status = STAT_END
+                    }
                 }
             case STAT_ATTR:
                 p.ParseAttributes('?')
@@ -242,13 +287,96 @@ func (p *TextParser) ParsePI() {
         }
     }
 
-    tagName = string(p.buffer[p.current - start])
-    fmt.Println(tagName)
+    tagName := string(p.buffer[start:p.current])
+    fmt.Println("PI: ", tagName)
 }
 
+func (p *TextParser) ParseCData() {
+    //status := STAT_CDATA
+    start := p.current - 3
 
+    for ; p.current + 2 < p.length && !(p.buffer[p.current] == RightBracket && p.buffer[p.current + 1] == RightBracket && p.buffer[p.current + 2] == Gt); p.current++ {
+        //do nothing
+    }
+    
+    p.current += 2
+    fmt.Println("CData: ", string(p.buffer[start: p.current+1]))
+}
 
+func (p *TextParser) ParseComment() {
+    status := STAT_COMMENT
+    start := p.current
+    completed := false 
+    for ; p.current < p.length; p.current++ {
+        ch := p.buffer[p.current]
 
+        switch status {
+            case STAT_COMMENT:
+                if ch == Dash {
+                    status = STAT_MINUS1
+                }
+            case STAT_MINUS1:
+                if ch == Dash {
+                    status = STAT_MINUS2
+                } else {
+                    status = STAT_COMMENT
+                }
+            case STAT_MINUS2:
+                if ch == Gt {
+                    completed = true
+                    break
+                } else {
+                    status = STAT_COMMENT
+                }
+        }
+
+        if completed {
+            break
+        }
+    }
+   
+    comment := p.buffer[start:p.current - 2]
+    fmt.Println("comment: ", string(comment))
+    return
+}
+
+func (p *TextParser) ParseEndTag() {
+    start := p.current
+    for ; p.current < p.length; p.current++ {
+        if p.buffer[p.current] == Gt {
+            break
+        }
+    }
+    
+    name := p.buffer[start: p.current]
+    fmt.Println("End tag name: ", string(name))
+    return
+}
+
+func (p *TextParser) ParseText() {
+    start := p.current - 1
+    for ; p.current < p.length; p.current++ {
+        ch := p.buffer[p.current]
+
+        //read < and end of the parsing
+        if ch == Lt {
+            if p.current > start {
+            
+            }
+            p.current = p.current - 1
+
+            break;
+        } else if ch == And {
+            //read & and parse the entity
+            //ParseEntity()
+        }
+    }
+    
+    if p.current > start {
+        text := p.buffer[start: p.current]
+        fmt.Println("text: ", string(text))
+    }
+}
 type HtmlReader struct {
     htmlData string
     buffer []rune
@@ -476,6 +604,7 @@ func main() {
     fmt.Println(str)
 
     fmt.Println("Start ... ")
-    parser := new(HtmlReader)
-    parser.Parse(str)
+    //parser := new(HtmlReader)
+    parser := new(TextParser)
+    parser.ParseStr(str)
 }
