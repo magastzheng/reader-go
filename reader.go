@@ -68,7 +68,17 @@ const (
     CDataStr = "CDATA"
 )
 
+type Handler interface {
+    OnStartElement(tag string, attrs map[string]string)
+    OnEndElement(tag string)
+    OnText(text string)
+    OnComment(text string)
+    OnPIElement(tag string, attrs map[string]string)
+    OnError(line int, row int, string message)
+}
+
 type Parser interface {
+    SetHandler(handler Handler)
     Parse()
 }
 
@@ -103,6 +113,10 @@ func (p *TextParser) SetData(data string){
     p.length = len(p.buffer)
     p.current = 0
 } 
+
+func (p *TextParser) SetHandler(handler Handler) {
+    p.handler = handler
+}
 
 func (p *TextParser) ParseStr(data string) {
     p.SetData(data)
