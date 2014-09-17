@@ -74,7 +74,7 @@ type Handler interface {
     OnText(text string)
     OnComment(text string)
     OnPIElement(tag string, attrs map[string]string)
-    OnError(line int, row int, string message)
+    OnError(line int, row int, message string)
 }
 
 type Parser interface {
@@ -92,6 +92,7 @@ type TextReader interface {
 }
 
 type TextParser struct {
+    handler Handler
     Data string
     buffer []rune
     status int
@@ -192,12 +193,14 @@ func (p *TextParser) Parse(){
     }
 }
 
-func (p *TextParser) ParseAttributes(endch rune) {
+func (p *TextParser) ParseAttributes(endch rune) map[string]string {
     status := STAT_PRE_KEY
     valueEnd := Quot
     start := 0
     attrNR := 0
-    //names := 
+    attrs := make(map[string]string)
+    name := ""
+    value := ""
     for ; p.current < p.length && attrNR < MAX_ATTR_NR; p.current++ {
         ch := p.buffer[p.current]
         switch status {
@@ -205,6 +208,9 @@ func (p *TextParser) ParseAttributes(endch rune) {
                 if ch == endch || ch == Gt {
                     //read '/' or '>' then go to end status
                     status = STAT_END
+                   //if ch == Gt {
+                   //     p.handler.OnEndElement(name)
+                    //}
                 } else if !p.IsSpace(ch) {
                     status = STAT_KEY
                     start = p.current
@@ -213,7 +219,8 @@ func (p *TextParser) ParseAttributes(endch rune) {
                 if ch == Eq {
                     //read the name (p.current - start)
                     names := p.buffer[start: p.current]
-                    fmt.Println("attr name ", string(names))
+                    name = string(names)
+                    //fmt.Println("attr name ", string(names))
                     status = STAT_PRE_VALUE
                 }
             case STAT_PRE_VALUE:
@@ -226,7 +233,9 @@ func (p *TextParser) ParseAttributes(endch rune) {
             case STAT_VALUE:
                 if ch == valueEnd {
                     values := p.buffer[start:p.current]
-                    fmt.Println("attr value: ", string(values))
+                    value = string(values)
+                    attrs[name] = value
+                    //fmt.Println("attr value: ", string(values))
                     status = STAT_PRE_KEY
                 } else {
                     //do nothing
@@ -237,6 +246,8 @@ func (p *TextParser) ParseAttributes(endch rune) {
             break
         }
     }
+
+    return attrs
 }
 
 func (p *TextParser) ParseStartTag() {
@@ -244,6 +255,7 @@ func (p *TextParser) ParseStartTag() {
     start := p.current - 1
     end := p.current
     firstSpace := true
+    attrs := make(map[string]string)
     for ; p.current < p.length; p.current++ {
         ch := p.buffer[p.current]
 
@@ -261,7 +273,7 @@ func (p *TextParser) ParseStartTag() {
                     }
                 }
             case STAT_ATTR:
-                p.ParseAttributes('/')
+                attrs = p.ParseAttributes('/')
                 status = STAT_END
         }
 
@@ -271,28 +283,38 @@ func (p *TextParser) ParseStartTag() {
     }
 
     names := p.buffer[start: end]
-    fmt.Println("Start tag name:", string(names))
-
+    //fmt.Println("Start tag name:", string(names))
+    //fmt.Println(string(p.buffer[p.current]))
+    p.handler.OnStartElement(string(names), attrs)
+    if p.buffer[p.current] == Slash {
+        p.handler.OnEndElement(string(names))
+    }
     //continue to read
 }
 
 func (p *TextParser) ParsePI() {
     status := STAT_NAME
     start := p.current
+    end := p.current
+    firstSpace := true
 
+    attrs := make(map[string]string)
     for ; p.current < p.length; p.current++ {
         ch := p.buffer[p.current]
         switch status {
             case STAT_NAME:
                 if p.IsSpace(ch) || ch == Gt {
                     if ch != Gt {
+                        if firstSpace && p.IsSpace(ch) {
+                            end = p.current
+                        }
                         status = STAT_ATTR
                     } else {
                         status = STAT_END
                     }
                 }
             case STAT_ATTR:
-                p.ParseAttributes('?')
+                attrs = p.ParseAttributes('?')
                 status = STAT_END
         }
 
@@ -301,8 +323,9 @@ func (p *TextParser) ParsePI() {
         }
     }
 
-    tagName := string(p.buffer[start:p.current])
-    fmt.Println("PI: ", tagName)
+    tagName := string(p.buffer[start:end])
+    //fmt.Println("PI: ", tagName)
+    p.handler.OnPIElement(tagName, attrs)
 }
 
 func (p *TextParser) ParseCData() {
@@ -350,7 +373,8 @@ func (p *TextParser) ParseComment() {
     }
    
     comment := p.buffer[start:p.current - 2]
-    fmt.Println("comment: ", string(comment))
+    //fmt.Println("comment: ", string(comment))
+    p.handler.OnComment(string(comment))
     return
 }
 
@@ -363,7 +387,8 @@ func (p *TextParser) ParseEndTag() {
     }
     
     name := p.buffer[start: p.current]
-    fmt.Println("End tag name: ", string(name))
+    //fmt.Println("End tag name: ", string(name))
+    p.handler.OnEndElement(string(name))
     return
 }
 
@@ -388,9 +413,44 @@ func (p *TextParser) ParseText() {
     
     if p.current > start {
         text := p.buffer[start: p.current]
-        fmt.Println("text: ", string(text))
+        p.handler.OnText(string(text))
+        //fmt.Println("text: ", string(text))
+    }
+}   
+
+type TextHandler struct {
+    
+}
+
+func (h * TextHandler) OnStartElement(tag string, attrs map[string]string) {
+    fmt.Println("Start el: ", tag)
+    for k, v := range attrs {
+        fmt.Println(k, v)
     }
 }
+    
+func (h *TextHandler) OnEndElement(tag string) {
+    fmt.Println("End el: ", tag)
+}
+
+func (h *TextHandler) OnText(text string) {
+    fmt.Println("Text: ", text)
+}
+func (h *TextHandler) OnComment(text string) {
+    fmt.Println("Comment: ", text)
+} 
+func (h *TextHandler) OnPIElement(tag string, attrs map[string]string) {
+    fmt.Println("PI: ", tag)
+
+    for k, v := range attrs {
+        fmt.Println(k, v)
+    }
+}
+func (h *TextHandler) OnError(line int, row int, message string) {
+    //do nothing
+}
+
+
 type HtmlReader struct {
     htmlData string
     buffer []rune
@@ -619,6 +679,8 @@ func main() {
 
     fmt.Println("Start ... ")
     //parser := new(HtmlReader)
+    handler := new(TextHandler)
     parser := new(TextParser)
+    parser.SetHandler(handler)
     parser.ParseStr(str)
 }
