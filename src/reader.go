@@ -5,7 +5,6 @@ import (
     "os"
     "io"
     "bytes"
-    "strings"
     "parser"
 )
 
@@ -16,6 +15,27 @@ const (
     Comment
     CData
     Other
+)
+
+const (
+    Lt rune = '<'
+    Gt rune = '>'
+    Slash rune = '/'
+    And rune = '&'
+    Apos rune = '\''
+    Quot rune = '"'
+    Blank rune = ' '
+    Exclam = '!'
+    Dash = '-'
+    CR = '\n'
+    RE = '\r'
+    Tab = '\t'
+    Question = '?'
+    Underscore = '_'
+    Eq = '='
+    LeftBracket = '['
+    RightBracket = ']'
+    Semicolon = ';'
 )
 
 type TextHandler struct {
@@ -124,7 +144,7 @@ func (p* HtmlReader) Read () rune {
   p.prev = p.current
   p.current = p.next
   if p.current >= p.length {
-    return End
+    return '0'
   }
 
   r := p.buffer[p.current]
@@ -284,8 +304,8 @@ func main() {
 
     fmt.Println("Start ... ")
     //parser := new(HtmlReader)
-    handler := new(TextHandler)
-    parser := new(TextParser)
+    handler := new(parser.HtmlHandler)
+    parser := new(parser.TextParser)
     parser.SetHandler(handler)
     parser.ParseStr(str)
 }
