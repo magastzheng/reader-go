@@ -5,6 +5,7 @@ import (
     "os"
     "io"
     "bytes"
+    "strings"
 )
 
 const (
@@ -56,6 +57,7 @@ const (
     Eq = '='
     LeftBracket = '['
     RightBracket = ']'
+    Semicolon = ';'
 )
 
 const MAX_ATTR_NR = 1024
@@ -74,6 +76,7 @@ type Handler interface {
     OnText(text string)
     OnComment(text string)
     OnPIElement(tag string, attrs map[string]string)
+    OnCData(text string)
     OnError(line int, row int, message string)
 }
 
@@ -135,7 +138,9 @@ func (p *TextParser) Parse(){
                     p.status = STAT_AFTER_LT
                 } else if !p.IsSpace(ch) {
                     p.status = STAT_TEXT
+                } else {
                 }
+
             case STAT_AFTER_LT:
                 if ch == Question {
                     p.status = STAT_PROCESS_INSTRUCTION
@@ -161,11 +166,9 @@ func (p *TextParser) Parse(){
                 p.ParsePI()
                 p.status = STAT_NONE
             case STAT_TEXT:
-                fmt.Println("*******Text******", "start", string(ch))
                 //parse text
                 p.ParseText()
                 p.status = STAT_NONE
-                fmt.Println("*******End Text*******")
             case STAT_PRE_COMMENT1:
                 if ch == Dash {
                     p.status = STAT_PRE_COMMENT2
@@ -182,10 +185,8 @@ func (p *TextParser) Parse(){
                 }
             case STAT_COMMENT:
                 //parse comment
-                fmt.Println("======Comment======")
                 p.ParseComment()
                 p.status = STAT_NONE
-                fmt.Println("======End Comment======")
             case STAT_CDATA:
                 p.ParseCData()
                 p.status = STAT_NONE
@@ -207,6 +208,7 @@ func (p *TextParser) ParseAttributes(endch rune) map[string]string {
             case STAT_PRE_KEY:
                 if ch == endch || ch == Gt {
                     //read '/' or '>' then go to end status
+                    
                     status = STAT_END
                    //if ch == Gt {
                    //     p.handler.OnEndElement(name)
@@ -220,7 +222,6 @@ func (p *TextParser) ParseAttributes(endch rune) map[string]string {
                     //read the name (p.current - start)
                     names := p.buffer[start: p.current]
                     name = string(names)
-                    //fmt.Println("attr name ", string(names))
                     status = STAT_PRE_VALUE
                 }
             case STAT_PRE_VALUE:
@@ -235,7 +236,6 @@ func (p *TextParser) ParseAttributes(endch rune) map[string]string {
                     values := p.buffer[start:p.current]
                     value = string(values)
                     attrs[name] = value
-                    //fmt.Println("attr value: ", string(values))
                     status = STAT_PRE_KEY
                 } else {
                     //do nothing
@@ -254,21 +254,27 @@ func (p *TextParser) ParseStartTag() {
     status := STAT_NAME
     start := p.current - 1
     end := p.current
-    firstSpace := true
+    isTag := true
     attrs := make(map[string]string)
+
     for ; p.current < p.length; p.current++ {
         ch := p.buffer[p.current]
-
         switch status {
             case STAT_NAME:
                 if p.IsSpace(ch) || ch == Gt || ch == Slash {
                     if ch != Gt && ch != Slash { 
-                        if firstSpace && p.IsSpace(ch) {
+                        if isTag && p.IsSpace(ch) {
                             end = p.current
-                            firstSpace = false
+                            isTag = false
                         }
                         status = STAT_ATTR 
                     } else {
+                        if ch == Slash {
+                            if isTag {
+                                end = p.current
+                                isTag = false
+                            }
+                        }
                         status = STAT_END
                     }
                 }
@@ -282,14 +288,15 @@ func (p *TextParser) ParseStartTag() {
         }
     }
 
+    ch := p.buffer[p.current]
     names := p.buffer[start: end]
-    //fmt.Println("Start tag name:", string(names))
-    //fmt.Println(string(p.buffer[p.current]))
-    p.handler.OnStartElement(string(names), attrs)
-    if p.buffer[p.current] == Slash {
-        p.handler.OnEndElement(string(names))
+    tag := string(names)
+    p.handler.OnStartElement(tag, attrs)
+    if ch == Slash {
+        //if it is a self-close element, read more a char '>' to end it
+        p.current += 1
+        p.handler.OnEndElement(tag)
     }
-    //continue to read
 }
 
 func (p *TextParser) ParsePI() {
@@ -323,9 +330,12 @@ func (p *TextParser) ParsePI() {
         }
     }
 
-    tagName := string(p.buffer[start:end])
-    //fmt.Println("PI: ", tagName)
-    p.handler.OnPIElement(tagName, attrs)
+    tag := string(p.buffer[start:end])
+    p.handler.OnPIElement(tag, attrs)
+    
+    for ; p.buffer[p.current] != Gt && p.current < p.length; p.current++ {
+        //read continue to end the element
+    }
 }
 
 func (p *TextParser) ParseCData() {
@@ -337,7 +347,9 @@ func (p *TextParser) ParseCData() {
     }
     
     p.current += 2
-    fmt.Println("CData: ", string(p.buffer[start: p.current+1]))
+    //fmt.Println("CData: ", string(p.buffer[start: p.current+1]))
+    cdata := string(p.buffer[start:p.current+1])
+    p.handler.OnCData(cdata)
 }
 
 func (p *TextParser) ParseComment() {
@@ -373,7 +385,6 @@ func (p *TextParser) ParseComment() {
     }
    
     comment := p.buffer[start:p.current - 2]
-    //fmt.Println("comment: ", string(comment))
     p.handler.OnComment(string(comment))
     return
 }
@@ -392,8 +403,40 @@ func (p *TextParser) ParseEndTag() {
     return
 }
 
+func (p *TextParser) ParseEntity() []rune {
+    start := p.current 
+
+    for ; p.buffer[p.current] != Semicolon && p.current < p.length; p.current ++ {
+        
+    }
+    
+    en := p.buffer[start: p.current + 1]
+    entity := string(en)
+    entity = strings.Trim(entity, " ")
+    
+    fmt.Println("start", string(p.buffer[start]), "end", string(p.buffer[p.current]), "entity: ", entity)
+
+    if entity == "&lt;" {
+        return [] rune {Lt}
+    }else if entity == "&gt;" {
+        return [] rune {Gt}
+    }else if entity == "&amp;"{
+        return [] rune {And}
+    }else if entity == "&apos;"{
+        return [] rune {Apos}
+    }else if entity == "&quot;" {
+        return [] rune {Quot}  
+    }else{
+       return en
+    }
+}
+
 func (p *TextParser) ParseText() {
-    start := p.current - 1
+    //read back a char to get back the one in Parse()
+    p.current = p.current - 1
+    start := p.current
+    end := p.current
+    stext := []rune{p.buffer[start]}
     for ; p.current < p.length; p.current++ {
         ch := p.buffer[p.current]
 
@@ -402,19 +445,26 @@ func (p *TextParser) ParseText() {
             if p.current > start {
             
             }
+            
+            end = p.current
+            
+            //return back a char
             p.current = p.current - 1
-
             break;
         } else if ch == And {
             //read & and parse the entity
-            //ParseEntity()
+            entity := p.ParseEntity()
+            for i := 0; i < len(entity); i++{
+                stext = append(stext, entity[i])
+            }
+        } else {
+            stext = append(stext, ch)
         }
     }
     
     if p.current > start {
-        text := p.buffer[start: p.current]
+        text := p.buffer[start: end]
         p.handler.OnText(string(text))
-        //fmt.Println("text: ", string(text))
     }
 }   
 
@@ -446,6 +496,11 @@ func (h *TextHandler) OnPIElement(tag string, attrs map[string]string) {
         fmt.Println(k, v)
     }
 }
+
+func (h *TextHandler) OnCData(text string){
+    fmt.Println("CData: ", text)
+}
+
 func (h *TextHandler) OnError(line int, row int, message string) {
     //do nothing
 }

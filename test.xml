@@ -1,8 +1,11 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <test attr="test/test">
-  <test1 id="only me" name="test">This is a test!</test1>
+  <test1 id="only me" name="test">This is a test in only me!</test1>
   <test2 id="test2" class="test test"/>
+  <test3/>
   <!--do it by yourself-->
   <![CDATA[teststeste]]>
   This is a test
+  <test4 tag="after" class='post'>You are right, but I still insist on &amp;</test4>
+  <test5 tag="entity" class='class'>&lt;The dog jump up from the fox&gt;&#2001; &quot;Bill&quot; said. But he&apos;s wrong &amp;</test5>
 </test>
